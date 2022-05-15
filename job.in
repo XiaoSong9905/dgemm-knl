@@ -1,0 +1,14 @@
+#!/bin/bash -l
+#SBATCH -C knl
+#SBATCH -c 1
+#SBATCH -S 4
+#SBATCH -p debug
+#SBATCH -N 1
+#SBATCH -t 00:2:00
+#SBATCH --cpu-freq=1400000
+#SBATCH -J job-@BENCHMARK@
+#SBATCH -o job-@BENCHMARK@.o%j
+#SBATCH -e job-@BENCHMARK@.e%j
+
+export MKL_NUM_THREADS=1
+srun -N 1 -n 1 ./benchmark-@BENCHMARK@
