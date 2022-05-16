@@ -324,13 +324,15 @@ void dgemm_knl( int m, int k, int n, \
         for ( int m_b_i = 0; m_b_i < m / m_b; m_b_i++ )
         {
             // Pack \tilde a
-            pack_a( src_a, hat_a, lda ); // TODO: change src_a displacement
+            pack_a( src_a + k_b_i * k_b * lda + m_b_i * m_b, hat_a, lda );
 
             for ( int n_r_i = 0; n_r_i < n / n_r; n_r_i++ )
             {
                 // Pack \tilde b
-                pack_b( src_b, hat_b, ldb ); // TODO: change src_b displacement
-                inner_kernel( hat_a, hat_b, src_c, ldc ); // TODO: change src_c displacement
+                pack_b( src_b + n_r_i * n_r * ldc + k_b_i * k_b, hat_b, ldb );
+
+                // Inner Kernel (register blocking)
+                inner_kernel( hat_a, hat_b, src_c + n_r_i * n_r * ldc + m_b_i * m_b, ldc );
             }
         }
     }
