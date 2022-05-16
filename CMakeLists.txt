@@ -1,26 +1,28 @@
 cmake_minimum_required(VERSION 3.14)
 project(dgemm-knl LANGUAGES C CXX)
 
+set(CMAKE_BUILD_TYPE Release)
+
 find_package(BLAS REQUIRED)
 
 # On Cori -- 1.4 GHz * 8 vector width * 2 vector pipelines * 2 flops for FMA = 44.8 GF/s
 set(MAX_SPEED 44.8 CACHE STRING "The max speed of the CPU in GF/s")
 
-# Use intel compiler instead
 # We require the GNU compiler for this assignment.
-# if (NOT "${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
-#     set(Prg-Intel "PrgEnv-intel")
-#     set(Prg-Clang "PrgEnv-cray")
-#     message(WARNING
-#             "Must use GNU Compiler for submission. Make sure you ran:\n"
-#             "module swap ${Prg-${CMAKE_C_COMPILER_ID}} PrgEnv-gnu")
-# endif ()
+if (NOT "${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
+    set(Prg-Intel "PrgEnv-intel")
+    set(Prg-Clang "PrgEnv-cray")
+    message(WARNING
+            "Must use GNU Compiler for submission. Make sure you ran:\n"
+            "module swap ${Prg-${CMAKE_C_COMPILER_ID}} PrgEnv-gnu")
+endif ()
 
 # Common library target for benchmarking.
 add_library(benchmark OBJECT benchmark.cpp)
 target_compile_definitions(benchmark PRIVATE MAX_SPEED=${MAX_SPEED} $<$<BOOL:${ALL_SIZES}>:ALL_SIZES>)
 target_compile_features(benchmark PRIVATE cxx_std_11)
 
+# Benchmark executable
 foreach (BENCHMARK IN ITEMS blocked blas)
     # Create benchmarking executable
     add_executable(benchmark-${BENCHMARK} dgemm-${BENCHMARK}.c)
@@ -29,5 +31,5 @@ foreach (BENCHMARK IN ITEMS blocked blas)
     target_compile_options(benchmark-${BENCHMARK} PRIVATE -Wall -pedantic -march=knl)
 
     # Generate job script
-    configure_file(job.in job-${BENCHMARK})
+    configure_file(benchmark.in job-benchmark-${BENCHMARK})
 endforeach ()

@@ -14,12 +14,44 @@ const char* dgemm_desc = "Blocked dgemm.";
 #define m_r 31
 #define n_r 8
 
+// https://stackoverflow.com/questions/63404539/portable-loop-unrolling-with-template-parameter-in-c-with-gcc-icc
+// Helper macros for stringification
+#define TO_STRING_HELPER(X)   #X
+#define TO_STRING(X)          TO_STRING_HELPER(X)
+
+// Define loop unrolling depending on the compiler
+#if defined(__ICC) || defined(__ICL)
+  #define UNROLL_LOOP(n)      _Pragma(TO_STRING(unroll (n)))
+#elif defined(__clang__)
+  #define UNROLL_LOOP(n)      _Pragma(TO_STRING(unroll (n)))
+#elif defined(__GNUC__) && !defined(__clang__)
+  #define UNROLL_LOOP(n)      _Pragma(TO_STRING(GCC unroll (16)))
+#elif defined(_MSC_BUILD)
+  #pragma message ("Microsoft Visual C++ (MSVC) detected: Loop unrolling not supported!")
+  #define UNROLL_LOOP(n)
+#else
+  #warning "Unknown compiler: Loop unrolling not supported!"
+  #define UNROLL_LOOP(n)
+#endif
+
+void inner_kernel(  double* __restrict__ hat_a, \
+                    double* __restrict__ hat_b, \
+                    double* __restrict__ hat_c, \
+                    int ldc );
+
+void pack_b( double* src_b, double* hat_b, int ldb );
+
+void pack_a( double* src_a, double* hat_a, int lda );
+
+
 /**
- * @brief Inner kernel for GEMM
+ * @brief Inner kernel for GEMM (row major order)
  * 
  *  \hat C : m_r * n_r
  *  \hat A : m_r * k_b
  *  \hat B : k_b * n_r
+ * 
+ *  \hat C += \hat A * \hat B
  * 
  *  m_r : 31
  *  n_r : 8
@@ -27,7 +59,7 @@ const char* dgemm_desc = "Blocked dgemm.";
  */
 inline void inner_kernel( double* __restrict__ hat_a, \
                           double* __restrict__ hat_b, \
-                          double*              hat_c, \
+                          double* __restrict__ hat_c, \
                           int ldc )
 {
     __m512d R00, R01, R02, R03, R04, R05, R06, R07, R08, R09, \
@@ -70,7 +102,7 @@ inline void inner_kernel( double* __restrict__ hat_a, \
 
     R30 = _mm512_loadu_pd( (void*)(hat_c + 30 * ldc) );
 
-    #pragma GCC unroll 3
+    UNROLL_LOOP( 3 )
     for ( int i = 0; i < k_b; ++i )
     {
         // Software prefetch from L2 to L1 for \hat A \hat B
@@ -162,132 +194,42 @@ inline void inner_kernel( double* __restrict__ hat_a, \
 
 
 /**
- * @brief Pack k_b * n_r of submatrix B
+ * @brief Pack k_b * n_r of submatrix B (row major order)
  * 
  */
-void pack_b( double* src_b, \
-             double* pack_b, \
-             int ldb )
+void pack_b( double* src_b, double* hat_b, int ldb )
 {
-    // masks for unit 1 shuffle
-    // 2 512 bits register used
-    long unit1shuffle_mask0[8] __attribute__((aligned(64))) = {0, 8, 2, 10, 4, 12, 6, 14};
-    long unit1shuffle_mask1[8] __attribute__((aligned(64))) = {1, 9, 3, 11, 5, 13, 7, 15};
-    __m512i v_unit1shuffle_mask0 = _mm512_load_epi64( &unit1shuffle_mask0 );
-    __m512i v_unit1shuffle_mask1 = _mm512_load_epi64( &unit1shuffle_mask1 );
-
-    // masks for unit 2 shuffle
-    // 2 512 bits register used
-    long unit2shuffle_mask0[8] __attribute__((aligned(64))) = {0, 1,  8,  9, 4, 5, 12, 13};
-    long unit2shuffle_mask1[8] __attribute__((aligned(64))) = {2, 3, 10, 11, 6, 7, 14, 15};
-    __m512i v_unit2shuffle_mask0 = _mm512_load_epi64( &unit2shuffle_mask0 );
-    __m512i v_unit2shuffle_mask1 = _mm512_load_epi64( &unit2shuffle_mask1 );
-
-    // mask for unit 4 shuffle
-    // 2 512 bits register used
-    long unit4shuffle_mask0[8] __attribute__((aligned(64))) = {0, 1, 2, 3,  8,  9, 10, 11};
-    long unit4shuffle_mask1[8] __attribute__((aligned(64))) = {4, 5, 6, 7, 12, 13, 14, 15};
-    __m512i v_unit4shuffle_mask0 = _mm512_load_epi64( &unit4shuffle_mask0 );
-    __m512i v_unit4shuffle_mask1 = _mm512_load_epi64( &unit4shuffle_mask1 );
-
-    // 16 512 bits registers used
-    __m512d x0, x1, x2, x3, x4, x5, x6, x7;
-    __m512d y0, y1, y2, y3, y4, y5, y6, y7;
-
-    // k_b (1624) * n_r (8) is packed by running multiple 8x8 transpose kernel
-    // Set k_b to multiply of 8 for easier transpose
-    for ( int iter_i = 0; iter_i < k_b / 8; iter_i++ )
+    UNROLL_LOOP( 4 )
+    for ( int row_i = 0; row_i < k_b; ++row_i )
     {
-        const double* src_col0 = src_b + 0 * ldb;
-        const double* src_col1 = src_b + 1 * ldb;
-        const double* src_col2 = src_b + 2 * ldb;
-        const double* src_col3 = src_b + 3 * ldb;
+        double* src_b_row_i = src_b + row_i * ldb;
+        double* hat_b_row_i = hat_b + row_i * n_r;
 
-        const double* src_col4 = src_b + 4 * ldb;
-        const double* src_col5 = src_b + 5 * ldb;
-        const double* src_col6 = src_b + 6 * ldb;
-        const double* src_col7 = src_b + 7 * ldb;
-
-        // TODO: consider add prefetch here
-        // maybe add prefetch for every column, prefetch next cache line (can still be place under L1 cache)
-
-        x0 = _mm512_loadu_pd( src_col0 );
-        x1 = _mm512_loadu_pd( src_col1 );
-        x2 = _mm512_loadu_pd( src_col2 );
-        x3 = _mm512_loadu_pd( src_col3 );
-
-        x4 = _mm512_loadu_pd( src_col4 );
-        x5 = _mm512_loadu_pd( src_col5 );
-        x6 = _mm512_loadu_pd( src_col6 );
-        x7 = _mm512_loadu_pd( src_col7 );
-
-        y0 = _mm512_permutex2var_pd( x0, v_unit1shuffle_mask0, x1 );
-        y1 = _mm512_permutex2var_pd( x0, v_unit1shuffle_mask1, x1 );
-        y2 = _mm512_permutex2var_pd( x2, v_unit1shuffle_mask0, x3 );
-        y3 = _mm512_permutex2var_pd( x2, v_unit1shuffle_mask1, x3 );
-
-        y4 = _mm512_permutex2var_pd( x4, v_unit1shuffle_mask0, x5 );
-        y5 = _mm512_permutex2var_pd( x4, v_unit1shuffle_mask1, x5 );
-        y6 = _mm512_permutex2var_pd( x6, v_unit1shuffle_mask0, x7 );
-        y7 = _mm512_permutex2var_pd( x6, v_unit1shuffle_mask1, x7 );
-
-        x0 = _mm512_permutex2var_pd( y0, v_unit2shuffle_mask0, y2 );
-        x1 = _mm512_permutex2var_pd( y0, v_unit2shuffle_mask1, y2 );
-        x2 = _mm512_permutex2var_pd( y1, v_unit2shuffle_mask0, y3 );
-        x3 = _mm512_permutex2var_pd( y1, v_unit2shuffle_mask1, y3 );
-
-        x4 = _mm512_permutex2var_pd( y4, v_unit2shuffle_mask0, y6 );
-        x5 = _mm512_permutex2var_pd( y4, v_unit2shuffle_mask1, y6 );
-        x6 = _mm512_permutex2var_pd( y5, v_unit2shuffle_mask0, y7 );
-        x7 = _mm512_permutex2var_pd( y5, v_unit2shuffle_mask1, y7 );
-
-        y0 = _mm512_permutex2var_pd( x0, v_unit4shuffle_mask0, x4 );
-        y1 = _mm512_permutex2var_pd( x2, v_unit4shuffle_mask0, x6 );
-        y2 = _mm512_permutex2var_pd( x1, v_unit4shuffle_mask0, x5 );
-        y3 = _mm512_permutex2var_pd( x3, v_unit4shuffle_mask0, x7 );
-
-        y4 = _mm512_permutex2var_pd( x0, v_unit4shuffle_mask1, x4 );
-        y5 = _mm512_permutex2var_pd( x2, v_unit4shuffle_mask1, x6 );
-        y6 = _mm512_permutex2var_pd( x1, v_unit4shuffle_mask1, x5 );
-        y7 = _mm512_permutex2var_pd( x3, v_unit4shuffle_mask1, x7 );
-
-        _mm512_store_pd( pack_b + 0 * 8, y0 );
-        _mm512_store_pd( pack_b + 1 * 8, y1 );
-        _mm512_store_pd( pack_b + 2 * 8, y2 );
-        _mm512_store_pd( pack_b + 3 * 8, y3 );
-
-        _mm512_store_pd( pack_b + 4 * 8, y4 );
-        _mm512_store_pd( pack_b + 5 * 8, y5 );
-        _mm512_store_pd( pack_b + 6 * 8, y6 );
-        _mm512_store_pd( pack_b + 7 * 8, y7 );
-
-        src_b += 8;
-        pack_b += 64;
+        UNROLL_LOOP( n_r );
+        for ( int col_i = 0; col_i < n_r; ++col_i )
+        {
+            *(hat_b_row_i + col_i) = *(src_b_row_i + col_i);
+        }
     }
 }
 
 
 /**
- * @brief Pack m_b (= m_r) * k_b of submatrix A
+ * @brief Pack m_b (= m_r) * k_b of submatrix A (row major order)
  * 
  */
-void pack_a( double* src_a, \
-             double* pack_a, \
-             int lda )
+void pack_a( double* src_a, double* hat_a, int lda )
 {
-    // TODO: currently use a naive scalar version of pack_a and relies on compiler optimization
-    // Need to find ways to optimize through intrinsic and SIMD
-
-    #pragma unroll GCC 4
-    for ( int col_i = 0; col_i < k_b; ++col_i )
+    UNROLL_LOOP( 4 )
+    for ( int row_i = 0; row_i < n_r; ++row_i )
     {
-        double* src_a_col_i = src_a + col_i * lda;
-        double* pack_a_col_i = pack_a + col_i * m_r;
+        double* src_a_row_i = src_a + row_i * lda;
+        double* hat_a_row_i = hat_a + row_i;
 
-        #pragma unroll GCC m_r
-        for ( int row_i = 0; row_i < m_r; ++row_i )
+        UNROLL_LOOP( n_r );
+        for ( int col_i = 0; col_i < k_b; ++col_i )
         {
-            *(pack_a_col_i + row_i) = *(src_a_col_i + row_i);
+            *(hat_a_row_i + col_i * m_r) = *(src_a_row_i + col_i);
         }
     }
 }
@@ -306,7 +248,7 @@ inline double* allocate_align_memory( int size, int align_bytes )
 
 
 /**
- * @brief DGEMM on KNL Node
+ * @brief DGEMM on KNL Node (row major order)
  *  A : m * k
  *  B : k * n
  *  C : m * n
@@ -324,15 +266,16 @@ void dgemm_knl( int m, int k, int n, \
         for ( int m_b_i = 0; m_b_i < m / m_b; m_b_i++ )
         {
             // Pack \tilde a
-            pack_a( src_a + k_b_i * k_b * lda + m_b_i * m_b, hat_a, lda );
+            pack_a( src_a + k_b_i * k_b * lda + m_b_i * m_b, hat_a, lda ); // TODO: change displacement
 
             for ( int n_r_i = 0; n_r_i < n / n_r; n_r_i++ )
             {
                 // Pack \tilde b
-                pack_b( src_b + n_r_i * n_r * ldc + k_b_i * k_b, hat_b, ldb );
+                pack_b( src_b + n_r_i * n_r * ldc + k_b_i * k_b, hat_b, ldb ); // TODO: change displacement
 
                 // Inner Kernel (register blocking)
-                inner_kernel( hat_a, hat_b, src_c + n_r_i * n_r * ldc + m_b_i * m_b, ldc );
+                inner_kernel( hat_a, hat_b, src_c + n_r_i * n_r * ldc + m_b_i * m_b, ldc ); // TODO: change displacement
+                // TODO: check inner kernel correctness
             }
         }
     }

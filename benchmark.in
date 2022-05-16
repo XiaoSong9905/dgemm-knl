@@ -6,9 +6,9 @@
 #SBATCH -N 1
 #SBATCH -t 00:2:00
 #SBATCH --cpu-freq=1400000
-#SBATCH -J job-@BENCHMARK@
-#SBATCH -o job-@BENCHMARK@.o%j
-#SBATCH -e job-@BENCHMARK@.e%j
+#SBATCH -J benchmark-@BENCHMARK@
+#SBATCH -o benchmark-@BENCHMARK@.o%j
+#SBATCH -e benchmark-@BENCHMARK@.e%j
 
 export MKL_NUM_THREADS=1
 export KMP_AFFINITY=compact
