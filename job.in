@@ -11,4 +11,6 @@
 #SBATCH -e job-@BENCHMARK@.e%j
 
 export MKL_NUM_THREADS=1
+export KMP_AFFINITY=compact
+export KMP_HW_SUBSET=1C,1T
 srun -N 1 -n 1 ./benchmark-@BENCHMARK@

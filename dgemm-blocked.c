@@ -1,9 +1,15 @@
+/* 
+ * Copyright (C) 2022 Xiao Song.
+ * All Rights Reserved.
+ * Content of this file is not for commertial use.
+ */
+
 #include <immintrin.h>
 #include <stdlib.h>
 
 const char* dgemm_desc = "Blocked dgemm.";
 
-#define k_b 1620
+#define k_b 1624
 #define m_b 31
 #define m_r 31
 #define n_r 8
@@ -68,8 +74,14 @@ inline void inner_kernel( const double* __restrict__ hat_a, \
     for ( int i = 0; i < k_b; ++i )
     {
         // Software prefetch from L2 to L1 for \hat A \hat B
-        _mm_prefetch( hat_a + 12 * m_r, _MM_HINT_T0 );
-        _mm_prefetch( hat_b + 32 * n_r , _MM_HINT_T0 );
+        // Each _mm_prefetch load one cache line of data
+        // \hat A need to load m_r * 8 (size of double) / 64 (size of cache line) = 3.8 cache line
+        // \hat B need to load n_r * 8 / 64 = 1 cache line
+        _mm_prefetch( hat_a + 12 * m_r + 64 * 0, _MM_HINT_T0 );
+        _mm_prefetch( hat_a + 12 * m_r + 64 * 1, _MM_HINT_T0 );
+        _mm_prefetch( hat_a + 12 * m_r + 64 * 2, _MM_HINT_T0 );
+        _mm_prefetch( hat_a + 12 * m_r + 64 * 3, _MM_HINT_T0 );
+        _mm_prefetch( hat_b + 32 * n_r + 64 * 0, _MM_HINT_T0 );
 
         R31 = _mm512_load_pd( hat_b );
 
@@ -150,6 +162,196 @@ inline void inner_kernel( const double* __restrict__ hat_a, \
 
 
 /**
+ * @brief Pack k_b * n_r of submatrix B
+ * 
+ */
+void pack_b( const double* src_b, \
+                   double* pack_b, \
+             int ldb )
+{
+    // masks for unit 1 shuffle
+    // 2 512 bits register used
+    long unit1shuffle_mask0[8] __attribute__((aligned(64))) = {0, 8, 2, 10, 4, 12, 6, 14};
+    long unit1shuffle_mask1[8] __attribute__((aligned(64))) = {1, 9, 3, 11, 5, 13, 7, 15};
+    __m512i v_unit1shuffle_mask0 = _mm512_load_epi64( &unit1shuffle_mask0 );
+    __m512i v_unit1shuffle_mask1 = _mm512_load_epi64( &unit1shuffle_mask1 );
+
+    // masks for unit 2 shuffle
+    // 2 512 bits register used
+    long unit2shuffle_mask0[8] __attribute__((aligned(64))) = {0, 1,  8,  9, 4, 5, 12, 13};
+    long unit2shuffle_mask1[8] __attribute__((aligned(64))) = {2, 3, 10, 11, 6, 7, 14, 15};
+    __m512i v_unit2shuffle_mask0 = _mm512_load_epi64( &unit2shuffle_mask0 );
+    __m512i v_unit2shuffle_mask1 = _mm512_load_epi64( &unit2shuffle_mask1 );
+
+    // mask for unit 4 shuffle
+    // 2 512 bits register used
+    long unit4shuffle_mask0[8] __attribute__((aligned(64))) = {0, 1, 2, 3,  8,  9, 10, 11};
+    long unit4shuffle_mask1[8] __attribute__((aligned(64))) = {4, 5, 6, 7, 12, 13, 14, 15};
+    __m512i v_unit4shuffle_mask0 = _mm512_load_epi64( &unit4shuffle_mask0 );
+    __m512i v_unit4shuffle_mask1 = _mm512_load_epi64( &unit4shuffle_mask1 );
+
+    // 16 512 bits registers used
+    __m512d x0, x1, x2, x3, x4, x5, x6, x7;
+    __m512d y0, y1, y2, y3, y4, y5, y6, y7;
+
+    // k_b (1624) * n_r (8) is packed by running multiple 8x8 transpose kernel
+    // Set k_b to multiply of 8 for easier transpose
+    for ( int iter_i = 0; iter_i < k_b / 8; iter_i++ )
+    {
+        const double* src_col0 = src_b + 0 * ldb;
+        const double* src_col1 = src_b + 1 * ldb;
+        const double* src_col2 = src_b + 2 * ldb;
+        const double* src_col3 = src_b + 3 * ldb;
+
+        const double* src_col4 = src_b + 4 * ldb;
+        const double* src_col5 = src_b + 5 * ldb;
+        const double* src_col6 = src_b + 6 * ldb;
+        const double* src_col7 = src_b + 7 * ldb;
+
+        // TODO: consider add prefetch here
+        // maybe add prefetch for every column, prefetch next cache line (can still be place under L1 cache)
+
+        x0 = _mm512_loadu_pd( src_col0 );
+        x1 = _mm512_loadu_pd( src_col1 );
+        x2 = _mm512_loadu_pd( src_col2 );
+        x3 = _mm512_loadu_pd( src_col3 );
+
+        x4 = _mm512_loadu_pd( src_col4 );
+        x5 = _mm512_loadu_pd( src_col5 );
+        x6 = _mm512_loadu_pd( src_col6 );
+        x7 = _mm512_loadu_pd( src_col7 );
+
+        y0 = _mm512_permutex2var_pd( x0, v_unit1shuffle_mask0, x1 );
+        y1 = _mm512_permutex2var_pd( x0, v_unit1shuffle_mask1, x1 );
+        y2 = _mm512_permutex2var_pd( x2, v_unit1shuffle_mask0, x3 );
+        y3 = _mm512_permutex2var_pd( x2, v_unit1shuffle_mask1, x3 );
+
+        y4 = _mm512_permutex2var_pd( x4, v_unit1shuffle_mask0, x5 );
+        y5 = _mm512_permutex2var_pd( x4, v_unit1shuffle_mask1, x5 );
+        y6 = _mm512_permutex2var_pd( x6, v_unit1shuffle_mask0, x7 );
+        y7 = _mm512_permutex2var_pd( x6, v_unit1shuffle_mask1, x7 );
+
+        x0 = _mm512_permutex2var_pd( y0, v_unit2shuffle_mask0, y2 );
+        x1 = _mm512_permutex2var_pd( y0, v_unit2shuffle_mask1, y2 );
+        x2 = _mm512_permutex2var_pd( y1, v_unit2shuffle_mask0, y3 );
+        x3 = _mm512_permutex2var_pd( y1, v_unit2shuffle_mask1, y3 );
+
+        x4 = _mm512_permutex2var_pd( y4, v_unit2shuffle_mask0, y6 );
+        x5 = _mm512_permutex2var_pd( y4, v_unit2shuffle_mask1, y6 );
+        x6 = _mm512_permutex2var_pd( y5, v_unit2shuffle_mask0, y7 );
+        x7 = _mm512_permutex2var_pd( y5, v_unit2shuffle_mask1, y7 );
+
+        y0 = _mm512_permutex2var_pd( x0, v_unit4shuffle_mask0, x4 );
+        y1 = _mm512_permutex2var_pd( x2, v_unit4shuffle_mask0, x6 );
+        y2 = _mm512_permutex2var_pd( x1, v_unit4shuffle_mask0, x5 );
+        y3 = _mm512_permutex2var_pd( x3, v_unit4shuffle_mask0, x7 );
+
+        y4 = _mm512_permutex2var_pd( x0, v_unit4shuffle_mask1, x4 );
+        y5 = _mm512_permutex2var_pd( x2, v_unit4shuffle_mask1, x6 );
+        y6 = _mm512_permutex2var_pd( x1, v_unit4shuffle_mask1, x5 );
+        y7 = _mm512_permutex2var_pd( x3, v_unit4shuffle_mask1, x7 );
+
+        _mm512_store_pd( pack_b + 0 * 8, y0 );
+        _mm512_store_pd( pack_b + 1 * 8, y1 );
+        _mm512_store_pd( pack_b + 2 * 8, y2 );
+        _mm512_store_pd( pack_b + 3 * 8, y3 );
+
+        _mm512_store_pd( pack_b + 4 * 8, y4 );
+        _mm512_store_pd( pack_b + 5 * 8, y5 );
+        _mm512_store_pd( pack_b + 6 * 8, y6 );
+        _mm512_store_pd( pack_b + 7 * 8, y7 );
+
+        src_b += 8;
+        pack_b += 64;
+    }
+}
+
+
+/**
+ * @brief Pack m_b * k_b of submatrix A
+ * 
+ */
+void pack_a( const double* src_a, \
+                   double* pack_a, \
+             int lda )
+{
+    __m512d v_a_col0_row07;
+    __m512d v_a_col1_row07;
+    __m512d v_a_col2_row07;
+    __m512d v_a_col3_row07;
+
+    __m512d v_a_col4_row07;
+    __m512d v_a_col5_row07;
+    __m512d v_a_col6_row07;
+    __m512d v_a_col7_row07;
+
+    // k_i += 8 is where s8 (step 8) come from
+    for ( int k_i = 0; k_i < k_c; k_i += 8 )
+    {
+        const double* src_a_col_0 = src_a + 0 * lda; 
+        const double* src_a_col_1 = src_a + 1 * lda;
+        const double* src_a_col_2 = src_a + 2 * lda;
+        const double* src_a_col_3 = src_a + 3 * lda;
+
+        const double* src_a_col_4 = src_a + 4 * lda; 
+        const double* src_a_col_5 = src_a + 5 * lda;
+        const double* src_a_col_6 = src_a + 6 * lda;
+        const double* src_a_col_7 = src_a + 7 * lda;
+
+        // Move right along x axis by 8
+        src_a += 8 * lda; // 8 is from s8
+
+        double* pack_a_0 = pack_a;
+        pack_a += 64; // 8x8
+
+        // Process 8x8 block at a time
+        // m_i += 8 is where v8 (vector of size 8) come from
+        // Iterate down along y axis, this is why called contigious read
+        for ( int m_i = 0; m_i < m_c; m_i += 8 )
+        {
+            // Since we can not require user to align matrix A to 32
+            //      the load from a need to be non-aligned version
+            // col 0 to 3
+            // col 0 to 3
+            v_a_col0_row07 = _mm512_loadu_pd( src_a_col_0 );
+            v_a_col1_row07 = _mm512_loadu_pd( src_a_col_1 );
+            v_a_col2_row07 = _mm512_loadu_pd( src_a_col_2 );
+            v_a_col3_row07 = _mm512_loadu_pd( src_a_col_3 );
+
+            _mm512_store_pd( pack_a_0 + 0 * 8, v_a_col0_row07 );
+            _mm512_store_pd( pack_a_0 + 1 * 8, v_a_col1_row07 );
+            _mm512_store_pd( pack_a_0 + 2 * 8, v_a_col2_row07 );
+            _mm512_store_pd( pack_a_0 + 3 * 8, v_a_col3_row07 );
+
+            // col 4 to 7
+            v_a_col4_row07 = _mm512_loadu_pd( src_a_col_4 );
+            v_a_col5_row07 = _mm512_loadu_pd( src_a_col_5 );
+            v_a_col6_row07 = _mm512_loadu_pd( src_a_col_6 );
+            v_a_col7_row07 = _mm512_loadu_pd( src_a_col_7 );
+
+            _mm512_store_pd( pack_a_0 + 4 * 8, v_a_col4_row07 );
+            _mm512_store_pd( pack_a_0 + 5 * 8, v_a_col5_row07 );
+            _mm512_store_pd( pack_a_0 + 6 * 8, v_a_col6_row07 );
+            _mm512_store_pd( pack_a_0 + 7 * 8, v_a_col7_row07 );
+
+            // update for next iter
+            src_a_col_0 += 8; // 8 is v8
+            src_a_col_1 += 8;
+            src_a_col_2 += 8;
+            src_a_col_3 += 8;
+
+            src_a_col_4 += 8;
+            src_a_col_5 += 8;
+            src_a_col_6 += 8;
+            src_a_col_7 += 8;
+
+            // Move to next m_r * k_c block
+            pack_a_0 += 8 * k_c; // 8 is v8
+        }
+    }
+}
+
+/**
  * @brief Allocate require aligned memory.
  * 
  */
@@ -172,23 +374,20 @@ void dgemm_knl( int m, int k, int n, \
                 int lda, int ldb, int ldc )
 {
     // Memory for \tilde a and \tilde b
-    double* tilde_a = allocate_align_memory( k_b * m_b, 64 );
-    double* tilde_b = allocate_align_memory(   n * k_b, 64 );
+    double* tilde_a = allocate_align_memory( m_b * k_b, 64 );
+    double* hat_b   = allocate_align_memory( k_b * n_r, 64 );
 
     for ( int k_b_i = 0; k_b_i < k / k_b; k_b_i++)
     {
-        // Pack \tilde b
-
         for ( int m_b_i = 0; m_b_i < m / m_b; m_b_i++ )
         {
             // Pack \tilde a
 
             for ( int n_r_i = 0; n_r_i < n / n_r; n_r_i++ )
             {
-                for ( int m_r_i = 0; m_r_i < m_b / m_r; m_r_i++ )
-                {
-                    inner_kernel( );
-                }
+                // Pack \tilde b
+                pack_b( src_b, hat_b, ldb ); // TODO: change src_b displacement
+                inner_kernel( );
             }
         }
     }
