@@ -3,27 +3,25 @@ project(dgemm-knl LANGUAGES C CXX)
 
 find_package(BLAS REQUIRED)
 
-# Run the full set of tests
-option(ALL_SIZES "Test an extended set of sizes; will take more CPU time." OFF)
-
 # On Cori -- 1.4 GHz * 8 vector width * 2 vector pipelines * 2 flops for FMA = 44.8 GF/s
 set(MAX_SPEED 44.8 CACHE STRING "The max speed of the CPU in GF/s")
 
+# Use intel compiler instead
 # We require the GNU compiler for this assignment.
-if (NOT "${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
-    set(Prg-Intel "PrgEnv-intel")
-    set(Prg-Clang "PrgEnv-cray")
-    message(WARNING
-            "Must use GNU Compiler for submission. Make sure you ran:\n"
-            "module swap ${Prg-${CMAKE_C_COMPILER_ID}} PrgEnv-gnu")
-endif ()
+# if (NOT "${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
+#     set(Prg-Intel "PrgEnv-intel")
+#     set(Prg-Clang "PrgEnv-cray")
+#     message(WARNING
+#             "Must use GNU Compiler for submission. Make sure you ran:\n"
+#             "module swap ${Prg-${CMAKE_C_COMPILER_ID}} PrgEnv-gnu")
+# endif ()
 
 # Common library target for benchmarking.
 add_library(benchmark OBJECT benchmark.cpp)
 target_compile_definitions(benchmark PRIVATE MAX_SPEED=${MAX_SPEED} $<$<BOOL:${ALL_SIZES}>:ALL_SIZES>)
 target_compile_features(benchmark PRIVATE cxx_std_11)
 
-foreach (BENCHMARK IN ITEMS naive blocked blas)
+foreach (BENCHMARK IN ITEMS blocked blas)
     # Create benchmarking executable
     add_executable(benchmark-${BENCHMARK} dgemm-${BENCHMARK}.c)
     target_link_libraries(benchmark-${BENCHMARK} PRIVATE benchmark ${BLAS_LIBRARIES})

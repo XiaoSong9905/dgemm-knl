@@ -10,6 +10,23 @@ const char* dgemm_desc = "Reference dgemm.";
  * This function wraps a call to the BLAS-3 routine DGEMM,
  * via the standard FORTRAN interface - hence the reference semantics.
  */
-void square_dgemm(int n, double* A, double* B, double* C) {
-    cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, n, n, n, 1., A, n, B, n, 1., C, n);
+void dgemm_knl( int m, int k, int n, \
+                double* src_a, double* src_b, double* src_c, \
+                int lda, int ldb, int ldc )
+{
+    // cblas_dgemm (const CBLAS_LAYOUT Layout, const CBLAS_TRANSPOSE transa, const CBLAS_TRANSPOSE transb, \
+                    const MKL_INT m, const MKL_INT n, const MKL_INT k, \
+                    const double alpha, \
+                    const double *a, const MKL_INT lda, \
+                    const double *b, const MKL_INT ldb, \
+                    const double beta, \
+                    double *c, const MKL_INT ldc);
+
+    cblas_dgemm( CblasColMajor, CblasNoTrans, CblasNoTrans, \
+                 m, n, k,
+                 1.,
+                 src_a, m,
+                 src_b, k,
+                 1.,
+                 src_c, m );
 }

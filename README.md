@@ -5,6 +5,7 @@
 Include DGEMM code tunned for KNL. The purpose of this code is to demonstrate how to tune a general GEMM algorithm for a specific hardware (i.e. Intel KNL). Thus the implemented GEMM do not cover the case where input is not multiply of kernel size.
 
 
+The code is mostly based on [1] and [2] with further modification based on the hyper-parameter choice.
 
 
 ## Notice to UC Berkeley CS267 student

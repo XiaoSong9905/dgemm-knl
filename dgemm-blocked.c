@@ -25,9 +25,9 @@ const char* dgemm_desc = "Blocked dgemm.";
  *  n_r : 8
  *  k_b : as argument
  */
-inline void inner_kernel( const double* __restrict__ hat_a, \
-                          const double* __restrict__ hat_b, \
-                                double*              hat_c, \
+inline void inner_kernel( double* __restrict__ hat_a, \
+                          double* __restrict__ hat_b, \
+                          double*              hat_c, \
                           int ldc )
 {
     __m512d R00, R01, R02, R03, R04, R05, R06, R07, R08, R09, \
@@ -165,8 +165,8 @@ inline void inner_kernel( const double* __restrict__ hat_a, \
  * @brief Pack k_b * n_r of submatrix B
  * 
  */
-void pack_b( const double* src_b, \
-                   double* pack_b, \
+void pack_b( double* src_b, \
+             double* pack_b, \
              int ldb )
 {
     // masks for unit 1 shuffle
@@ -268,88 +268,30 @@ void pack_b( const double* src_b, \
 
 
 /**
- * @brief Pack m_b * k_b of submatrix A
+ * @brief Pack m_b (= m_r) * k_b of submatrix A
  * 
  */
-void pack_a( const double* src_a, \
-                   double* pack_a, \
+void pack_a( double* src_a, \
+             double* pack_a, \
              int lda )
 {
-    __m512d v_a_col0_row07;
-    __m512d v_a_col1_row07;
-    __m512d v_a_col2_row07;
-    __m512d v_a_col3_row07;
+    // TODO: currently use a naive scalar version of pack_a and relies on compiler optimization
+    // Need to find ways to optimize through intrinsic and SIMD
 
-    __m512d v_a_col4_row07;
-    __m512d v_a_col5_row07;
-    __m512d v_a_col6_row07;
-    __m512d v_a_col7_row07;
-
-    // k_i += 8 is where s8 (step 8) come from
-    for ( int k_i = 0; k_i < k_c; k_i += 8 )
+    #pragma unroll GCC 4
+    for ( int col_i = 0; col_i < k_b; ++col_i )
     {
-        const double* src_a_col_0 = src_a + 0 * lda; 
-        const double* src_a_col_1 = src_a + 1 * lda;
-        const double* src_a_col_2 = src_a + 2 * lda;
-        const double* src_a_col_3 = src_a + 3 * lda;
+        double* src_a_col_i = src_a + col_i * lda;
+        double* pack_a_col_i = pack_a + col_i * m_r;
 
-        const double* src_a_col_4 = src_a + 4 * lda; 
-        const double* src_a_col_5 = src_a + 5 * lda;
-        const double* src_a_col_6 = src_a + 6 * lda;
-        const double* src_a_col_7 = src_a + 7 * lda;
-
-        // Move right along x axis by 8
-        src_a += 8 * lda; // 8 is from s8
-
-        double* pack_a_0 = pack_a;
-        pack_a += 64; // 8x8
-
-        // Process 8x8 block at a time
-        // m_i += 8 is where v8 (vector of size 8) come from
-        // Iterate down along y axis, this is why called contigious read
-        for ( int m_i = 0; m_i < m_c; m_i += 8 )
+        #pragma unroll GCC m_r
+        for ( int row_i = 0; row_i < m_r; ++row_i )
         {
-            // Since we can not require user to align matrix A to 32
-            //      the load from a need to be non-aligned version
-            // col 0 to 3
-            // col 0 to 3
-            v_a_col0_row07 = _mm512_loadu_pd( src_a_col_0 );
-            v_a_col1_row07 = _mm512_loadu_pd( src_a_col_1 );
-            v_a_col2_row07 = _mm512_loadu_pd( src_a_col_2 );
-            v_a_col3_row07 = _mm512_loadu_pd( src_a_col_3 );
-
-            _mm512_store_pd( pack_a_0 + 0 * 8, v_a_col0_row07 );
-            _mm512_store_pd( pack_a_0 + 1 * 8, v_a_col1_row07 );
-            _mm512_store_pd( pack_a_0 + 2 * 8, v_a_col2_row07 );
-            _mm512_store_pd( pack_a_0 + 3 * 8, v_a_col3_row07 );
-
-            // col 4 to 7
-            v_a_col4_row07 = _mm512_loadu_pd( src_a_col_4 );
-            v_a_col5_row07 = _mm512_loadu_pd( src_a_col_5 );
-            v_a_col6_row07 = _mm512_loadu_pd( src_a_col_6 );
-            v_a_col7_row07 = _mm512_loadu_pd( src_a_col_7 );
-
-            _mm512_store_pd( pack_a_0 + 4 * 8, v_a_col4_row07 );
-            _mm512_store_pd( pack_a_0 + 5 * 8, v_a_col5_row07 );
-            _mm512_store_pd( pack_a_0 + 6 * 8, v_a_col6_row07 );
-            _mm512_store_pd( pack_a_0 + 7 * 8, v_a_col7_row07 );
-
-            // update for next iter
-            src_a_col_0 += 8; // 8 is v8
-            src_a_col_1 += 8;
-            src_a_col_2 += 8;
-            src_a_col_3 += 8;
-
-            src_a_col_4 += 8;
-            src_a_col_5 += 8;
-            src_a_col_6 += 8;
-            src_a_col_7 += 8;
-
-            // Move to next m_r * k_c block
-            pack_a_0 += 8 * k_c; // 8 is v8
+            *(pack_a_col_i + row_i) = *(src_a_col_i + row_i);
         }
     }
 }
+
 
 /**
  * @brief Allocate require aligned memory.
@@ -370,36 +312,26 @@ inline double* allocate_align_memory( int size, int align_bytes )
  *  C : m * n
  */
 void dgemm_knl( int m, int k, int n, \
-                const double* src_a, const double* src_b, double* src_c, \
+                double* src_a, double* src_b, double* src_c, \
                 int lda, int ldb, int ldc )
 {
     // Memory for \tilde a and \tilde b
-    double* tilde_a = allocate_align_memory( m_b * k_b, 64 );
-    double* hat_b   = allocate_align_memory( k_b * n_r, 64 );
+    double* hat_a = allocate_align_memory( m_r * k_b, 64 ); // m_b = m_r
+    double* hat_b = allocate_align_memory( k_b * n_r, 64 );
 
     for ( int k_b_i = 0; k_b_i < k / k_b; k_b_i++)
     {
         for ( int m_b_i = 0; m_b_i < m / m_b; m_b_i++ )
         {
             // Pack \tilde a
+            pack_a( src_a, hat_a, lda ); // TODO: change src_a displacement
 
             for ( int n_r_i = 0; n_r_i < n / n_r; n_r_i++ )
             {
                 // Pack \tilde b
                 pack_b( src_b, hat_b, ldb ); // TODO: change src_b displacement
-                inner_kernel( );
+                inner_kernel( hat_a, hat_b, src_c, ldc ); // TODO: change src_c displacement
             }
         }
     }
-}
-
-
-
-/**
- * @brief Benchmark function
- * 
- */
-void square_dgemm( int n, double* src_a, double* src_b, double* src_c )
-{
-    return dgemm_knl( n, n, n, src_a, src_b, src_c, n, n, n );
 }
