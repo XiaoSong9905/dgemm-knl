@@ -5,6 +5,7 @@
  */
 
 #include <cstdio>
+#include <cstdlib>
 #include <immintrin.h>
 
 #define n_r 8
@@ -58,7 +59,7 @@ int main( int argc, char** argv )
     if ( argc != 4 )
     {
         printf("Invalid argv\n");
-        exit(1);
+        return -1;
     }
     int m = m_b * atoi(argv[1]);
     int k = k_b * atoi(argv[2]);

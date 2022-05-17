@@ -8,13 +8,16 @@ find_package(BLAS REQUIRED)
 # On Cori -- 1.4 GHz * 8 vector width * 2 vector pipelines * 2 flops for FMA = 44.8 GF/s
 set(MAX_SPEED 44.8 CACHE STRING "The max speed of the CPU in GF/s")
 
-# We require the GNU compiler for this assignment.
-if (NOT "${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
+message( STATUS "CMAKE_C_COMPILER_ID ${CMAKE_C_COMPILER_ID}")
+
+# Use intel compiler to achieve best perf
+if (NOT "${CMAKE_C_COMPILER_ID}" STREQUAL "Intel")
     set(Prg-Intel "PrgEnv-intel")
     set(Prg-Clang "PrgEnv-cray")
+    set(Prg-gnu "PrgEnv-gnu")
     message(WARNING
-            "Must use GNU Compiler for submission. Make sure you ran:\n"
-            "module swap ${Prg-${CMAKE_C_COMPILER_ID}} PrgEnv-gnu")
+            "Recommend use Intel Compiler. Make sure you ran:\n"
+            "module swap ${Prg-${CMAKE_C_COMPILER_ID}} PrgEnv-Intel")
 endif ()
 
 # Common library target for benchmarking.

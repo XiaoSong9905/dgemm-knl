@@ -13,4 +13,5 @@
 export MKL_NUM_THREADS=1
 export KMP_AFFINITY=compact
 export KMP_HW_SUBSET=1C,1T
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/intel/compilers_and_libraries_2020.2.254/linux/compiler/lib/intel64_lin
 srun -N 1 -n 1 ./benchmark-@BENCHMARK@

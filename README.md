@@ -9,11 +9,11 @@ The implemented DGEMM is row major. The implementation mostly follow [1]. Howeve
 
 One should also notice, the `Algoritm 1` used in [1] corresbonding to `Figure 8` in [2], which is designed for col major order. This make packing unable to use SIMD transpose (i.e. If use for col major order and n_r is multiply of 8, then pack B can be done with SIMD transpose).
 
-| size                           | our imp % of peak | mkl imp % of peak |
-| ------------------------------ | ----------------- | ----------------- |
-| m (2418) x k (3264) x n (2400) | 54.42             | 73.86             |
-| m (2418) x k (3264) x n (2400) | 54.33             | 73.92             |
-| m (4836) x k (4896) x n (4840) | 55.36             | 75.12             |
+| size                           | our imp % of peak | mkl imp % of peak | percent of MKL |
+| ------------------------------ | ----------------- | ----------------- | -------------- |
+| m (2418) x k (3264) x n (2400) | 56.18             | 73.86             | 76.06%         |
+| m (2418) x k (3264) x n (2400) | 56.10             | 73.92             | 75.90%         |
+| m (4836) x k (4896) x n (4840) | 56.99             | 75.12             | 75.87%         |
 
 
 
@@ -27,10 +27,11 @@ You should **NOT** using this code (in part or whole) for your GEMM assignment.U
 module load cmake
 # Use GNU compiler
 module swap PrgEnv-intel PrgEnv-gnu
+# Use Intel compiler
+module swap PrgEnv-gnu PrgEnv-intel 
 mkdir build && cd build
 make -j 10
 ```
-
 
 ## Submit job
 ```shell
