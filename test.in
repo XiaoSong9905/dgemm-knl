@@ -13,4 +13,4 @@
 export MKL_NUM_THREADS=1
 export KMP_AFFINITY=compact
 export KMP_HW_SUBSET=1C,1T
-srun -N 1 -n 1 ./test-@TESTTYPE@
+srun -N 1 -n 1 ./test-@TESTTYPE@ 2 2 2

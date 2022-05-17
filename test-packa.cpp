@@ -8,9 +8,9 @@
 #include <immintrin.h>
 
 #define n_r 8
-#define k_b 12 // NOTE: this is different number compared with actual k_b
-#define m_r 5  // NOTE: this is different number compared with actual m_r
-#define m_b 10 // NOTE: this is different number compared with actual m_r
+#define k_b 24 // NOTE: this is different number compared with actual k_b
+#define m_r 31 // NOTE: this is different number compared with actual m_r
+#define m_b 31 // NOTE: this is different number compared with actual m_b
 
 #define TO_STRING_HELPER(X)   #X
 #define TO_STRING(X)          TO_STRING_HELPER(X)
@@ -31,37 +31,44 @@
 #endif
 
 
-void pack_a( double* src_a, double* hat_a, int lda )
+void pack_a( double* src_a, double* pak_a, int lda )
 {
     for ( int m_r_i = 0; m_r_i < (m_b / m_r); ++m_r_i )
     {
         double* src_a_row_m_r_i = src_a + m_r_i * m_r * lda;
-        double* hat_a_row_m_r_i = hat_a + m_r_i * m_r * k_b;
+        double* pak_a_row_m_r_i = pak_a + m_r_i * m_r * k_b;
 
         UNROLL_LOOP( 4 )
         for ( int row_i = 0; row_i < m_r; ++row_i )
         {
             double* src_a_row_i = src_a_row_m_r_i + row_i * lda;
-            double* hat_a_row_i = hat_a_row_m_r_i + row_i;
+            double* pak_a_row_i = pak_a_row_m_r_i + row_i;
 
             UNROLL_LOOP( 8 * 4 )
             for ( int col_i = 0; col_i < k_b; ++col_i )
             {
-                *(hat_a_row_i + col_i * m_r) = *(src_a_row_i + col_i);
+                *(pak_a_row_i + col_i * m_r) = *(src_a_row_i + col_i);
             }
         }
     }
 }
 
-
-int main()
+int main( int argc, char** argv )
 {
-    int m = m_b * 2;
-    int k = k_b * 2;
+    if ( argc != 4 )
+    {
+        printf("Invalid argv\n");
+        exit(1);
+    }
+    int m = m_b * atoi(argv[1]);
+    int k = k_b * atoi(argv[2]);
+    int n = n_r * atoi(argv[3]);
     int lda = k;
+    int ldb = n;
+    int ldc = n;
 
     double* src_a = (double*)_mm_malloc( m   * k   * sizeof( double ), 64 );
-    double* hat_a = (double*)_mm_malloc( m_b * k_b * sizeof( double ), 64 );
+    double* pak_a = (double*)_mm_malloc( m_b * k_b * sizeof( double ), 64 );
 
     for ( int i = 0; i < m * k; ++i )
     {
@@ -92,7 +99,7 @@ int main()
         for ( int m_b_i = 0; m_b_i < m / m_b; m_b_i++ )
         {
             // Pack \tilde a
-            pack_a( src_a + m_b_i * m_b * lda + k_b_i * k_b, hat_a, lda );
+            pack_a( src_a + m_b_i * m_b * lda + k_b_i * k_b, pak_a, lda );
 
             // Print hat A
             // hat A is stored in column major order
@@ -106,7 +113,7 @@ int main()
 
                 for ( int row_i = 0; row_i < m_r; ++row_i )
                 {
-                    printf("%4.0f ", *(hat_a + col_i * m_r + row_i ));
+                    printf("%4.0f ", *(pak_a + col_i * m_r + row_i ));
                 }
                 printf("\n");
             }
@@ -114,5 +121,5 @@ int main()
     }
 
     _mm_free( src_a );
-    _mm_free( hat_a );
+    _mm_free( pak_a );
 }

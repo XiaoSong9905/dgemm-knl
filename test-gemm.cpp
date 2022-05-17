@@ -44,7 +44,7 @@
  * 
  *  m_r : 31
  *  n_r : 8
- *  k_b : 1632
+ *  k_b : not required to be hardcode by this function
  */
 inline void inner_kernel( double* __restrict__ hat_a, \
                           double* __restrict__ hat_b, \
@@ -67,7 +67,7 @@ inline void inner_kernel( double* __restrict__ hat_a, \
     R08 = _mm512_loadu_pd( (void*)(hat_c + 8 * ldc) );
     R09 = _mm512_loadu_pd( (void*)(hat_c + 9 * ldc) );
 
-    R10 = _mm512_loadu_pd( (void*)(hat_c + 11 * ldc) );
+    R10 = _mm512_loadu_pd( (void*)(hat_c + 10 * ldc) );
     R11 = _mm512_loadu_pd( (void*)(hat_c + 11 * ldc) );
     R12 = _mm512_loadu_pd( (void*)(hat_c + 12 * ldc) );
     R13 = _mm512_loadu_pd( (void*)(hat_c + 13 * ldc) );
@@ -78,7 +78,7 @@ inline void inner_kernel( double* __restrict__ hat_a, \
     R18 = _mm512_loadu_pd( (void*)(hat_c + 18 * ldc) );
     R19 = _mm512_loadu_pd( (void*)(hat_c + 19 * ldc) );
 
-    R20 = _mm512_loadu_pd( (void*)(hat_c + 22 * ldc) );
+    R20 = _mm512_loadu_pd( (void*)(hat_c + 20 * ldc) );
     R21 = _mm512_loadu_pd( (void*)(hat_c + 21 * ldc) );
     R22 = _mm512_loadu_pd( (void*)(hat_c + 22 * ldc) );
     R23 = _mm512_loadu_pd( (void*)(hat_c + 23 * ldc) );
@@ -94,8 +94,6 @@ inline void inner_kernel( double* __restrict__ hat_a, \
     UNROLL_LOOP( 3 )
     for ( int i = 0; i < k_b; ++i )
     {
-        printf("inner_kernel i %d/%d\n", i, k_b );
-
         // Software prefetch from L2 to L1 for \hat A \hat B
         // Each _mm_prefetch load one cache line of data
         // \hat A need to load m_r * 8 (size of double) / 64 (size of cache line) = 3.8 cache line
@@ -188,23 +186,23 @@ inline void inner_kernel( double* __restrict__ hat_a, \
  * @brief Pack k_b * n_r of submatrix B (row major order)
  * 
  */
-void pack_b( double* src_b, double* hat_b, int ldb, int n )
+void pack_b( double* src_b, double* pak_b, int ldb, int n )
 {
     for ( int row_i = 0; row_i < k_b; ++row_i )
     {
         double* src_b_row_i = src_b + row_i * ldb;
-        double* hat_b_row_i = hat_b + row_i * n_r;
+        double* pak_b_row_i = pak_b + row_i * n_r;
 
         UNROLL_LOOP( 4 )
         for ( int n_r_i = 0; n_r_i < (n / n_r); ++n_r_i )
         {
             double* src_b_row_n_r_i = src_b_row_i + n_r_i * n_r;
-            double* hat_b_row_n_r_i = hat_b_row_i + n_r_i * k_b * n_r;
+            double* pak_b_row_n_r_i = pak_b_row_i + n_r_i * k_b * n_r;
 
             UNROLL_LOOP( n_r )
             for ( int col_i = 0; col_i < n_r; ++col_i )
             {
-                *(hat_b_row_n_r_i + col_i) = *(src_b_row_n_r_i + col_i);
+                *(pak_b_row_n_r_i + col_i) = *(src_b_row_n_r_i + col_i);
             }
         }
     }
@@ -215,23 +213,23 @@ void pack_b( double* src_b, double* hat_b, int ldb, int n )
  * @brief Pack m_b * k_b of submatrix A (row major order)
  * 
  */
-void pack_a( double* src_a, double* hat_a, int lda )
+void pack_a( double* src_a, double* pak_a, int lda )
 {
     for ( int m_r_i = 0; m_r_i < (m_b / m_r); ++m_r_i )
     {
         double* src_a_row_m_r_i = src_a + m_r_i * m_r * lda;
-        double* hat_a_row_m_r_i = hat_a + m_r_i * m_r * k_b;
+        double* pak_a_row_m_r_i = pak_a + m_r_i * m_r * k_b;
 
         UNROLL_LOOP( 4 )
         for ( int row_i = 0; row_i < m_r; ++row_i )
         {
             double* src_a_row_i = src_a_row_m_r_i + row_i * lda;
-            double* hat_a_row_i = hat_a_row_m_r_i + row_i;
+            double* pak_a_row_i = pak_a_row_m_r_i + row_i;
 
             UNROLL_LOOP( 8 * 4 )
             for ( int col_i = 0; col_i < k_b; ++col_i )
             {
-                *(hat_a_row_i + col_i * m_r) = *(src_a_row_i + col_i);
+                *(pak_a_row_i + col_i * m_r) = *(src_a_row_i + col_i);
             }
         }
     }
@@ -248,37 +246,27 @@ void dgemm_knl( int m, int k, int n, \
                 double* src_a, double* src_b, double* src_c, \
                 int lda, int ldb, int ldc )
 {
-    printf("dgemm_knl start\n");
-
     // Memory for \tilde a and \tilde b
-    double* hat_a = (double*)_mm_malloc( m_b * k_b * sizeof( double ), 64 );
-    double* hat_b = (double*)_mm_malloc( k_b * n_r * sizeof( double ), 64 );
+    double* pak_a = (double*)_mm_malloc( m_b * k_b * sizeof( double ), 64 );
+    double* pak_b = (double*)_mm_malloc( k_b * n   * sizeof( double ), 64 );
 
     for ( int k_b_i = 0; k_b_i < k / k_b; k_b_i++)
     {
-        printf("k_b_i %d/%d\n", k_b_i, k / k_b );
-
         // Pack \tilde b
-        pack_b( src_b + k_b_i * k_b * ldb, hat_b, ldb, n );
+        pack_b( src_b + k_b_i * k_b * ldb, pak_b, ldb, n );
 
         for ( int m_b_i = 0; m_b_i < m / m_b; m_b_i++ )
         {
-            printf("m_b_i %d/%d\n", m_b_i, m / m_b );
-
             // Pack \tilde a
-            pack_a( src_a + m_b_i * m_b * lda + k_b_i * k_b, hat_a, lda );
+            pack_a( src_a + m_b_i * m_b * lda + k_b_i * k_b, pak_a, lda );
 
             for ( int n_r_i = 0; n_r_i < n / n_r; n_r_i++ )
             {
-                printf("n_r_i %d/%d\n", n_r_i, n / n_r );
-
                 for ( int m_r_i = 0; m_r_i < m_b / m_r; m_r_i++ )
                 {
-                    printf("m_r_i %d/%d\n", m_r_i, m_b / m_r );
-
                     // Inner Kernel (register blocking)
-                    inner_kernel( hat_a + m_r_i * m_r * k_b, \
-                                  hat_b + n_r_i * n_r * k_b, \
+                    inner_kernel( pak_a + m_r_i * m_r * k_b, \
+                                  pak_b + n_r_i * n_r * k_b, \
                                   src_c + m_b_i * m_b * ldc + m_r_i * m_r * ldc + n_r_i * n_r, \
                                   ldc );
                 }
@@ -286,8 +274,8 @@ void dgemm_knl( int m, int k, int n, \
         }
     }
 
-    _mm_free( hat_a );
-    _mm_free( hat_b );
+    _mm_free( pak_a );
+    _mm_free( pak_b );
 }
 
 
@@ -303,11 +291,16 @@ void reference_dgemm( int m, int k, int n, double* src_a, double* src_b, double*
 }
 
 
-int main()
+int main( int argc, char** argv )
 {
-    int m = m_b;
-    int k = k_b;
-    int n = n_r;
+    if ( argc != 4 )
+    {
+        printf("Invalid argv\n");
+        exit(1);
+    }
+    int m = m_b * atoi(argv[1]);
+    int k = k_b * atoi(argv[2]);
+    int n = n_r * atoi(argv[3]);
     int lda = k;
     int ldb = n;
     int ldc = n;
@@ -330,7 +323,7 @@ int main()
     }
 
     reference_dgemm( m, k, n, src_a, src_b, src_c_corr, lda, ldb, ldc );
-    dgemm_knl( m, k, n, src_a, src_b, src_c_test, lda, ldb, ldc );
+    dgemm_knl(       m, k, n, src_a, src_b, src_c_test, lda, ldb, ldc );
 
     printf("\nCorrect result\n");
     for ( int row_i = 0; row_i < m; ++row_i )

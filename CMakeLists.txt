@@ -35,7 +35,7 @@ foreach (BENCHMARK IN ITEMS blocked blas)
 endforeach ()
 
 # Test
-foreach (TESTTYPE IN ITEMS packa packb innerkernel )
+foreach (TESTTYPE IN ITEMS packa packb gemm )
     add_executable(test-${TESTTYPE} test-${TESTTYPE}.cpp)
     target_link_libraries(test-${TESTTYPE} PRIVATE ${BLAS_LIBRARIES})
     target_compile_features(test-${TESTTYPE} PRIVATE c_std_11 c_restrict)
