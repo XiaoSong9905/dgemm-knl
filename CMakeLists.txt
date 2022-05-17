@@ -28,7 +28,7 @@ foreach (BENCHMARK IN ITEMS blocked blas)
     add_executable(benchmark-${BENCHMARK} dgemm-${BENCHMARK}.c)
     target_link_libraries(benchmark-${BENCHMARK} PRIVATE benchmark ${BLAS_LIBRARIES})
     target_compile_features(benchmark-${BENCHMARK} PRIVATE c_std_11 c_restrict)
-    target_compile_options(benchmark-${BENCHMARK} PRIVATE -Wall -pedantic -march=knl -O3)
+    target_compile_options(benchmark-${BENCHMARK} PRIVATE -Wall -pedantic -march=knl -O3 -ffast-math )
 
     # Generate job script
     configure_file(benchmark.in job-benchmark-${BENCHMARK})
@@ -39,7 +39,7 @@ foreach (TESTTYPE IN ITEMS packa packb gemm )
     add_executable(test-${TESTTYPE} test-${TESTTYPE}.cpp)
     target_link_libraries(test-${TESTTYPE} PRIVATE ${BLAS_LIBRARIES})
     target_compile_features(test-${TESTTYPE} PRIVATE c_std_11 c_restrict)
-    target_compile_options(test-${TESTTYPE} PRIVATE -Wall -pedantic -march=knl)
+    target_compile_options(test-${TESTTYPE} PRIVATE -Wall -pedantic -march=knl -O3 -ffast-math )
 
     # Generate job script
     configure_file(test.in job-test-${TESTTYPE})

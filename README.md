@@ -12,7 +12,7 @@ One should also notice, the `Algoritm 1` used in [1] corresbonding to `Figure 8`
 | size                           | our imp % of peak | mkl imp % of peak |
 | ------------------------------ | ----------------- | ----------------- |
 | m (2418) x k (3264) x n (2400) | 54.42             | 73.86             |
-| m (2418) x k (3264) x n (2400) | 53.99             | 73.92             |
+| m (2418) x k (3264) x n (2400) | 54.33             | 73.92             |
 | m (4836) x k (4896) x n (4840) | 55.36             | 75.12             |
 
 

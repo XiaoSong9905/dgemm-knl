@@ -54,7 +54,6 @@ int main(int argc, char** argv)
     std::vector<std::vector<int>> test_sizes
     {
         // m,k,n
-        std::vector<int>{ 1*31, 1*1620, 1*8 },
         std::vector<int>{ 78*31, 1*1620, 300*8 },
         std::vector<int>{ 78*31, 2*1620, 300*8 },
         std::vector<int>{ 156*31, 3*1620, 605*8 },
