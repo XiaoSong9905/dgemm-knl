@@ -257,7 +257,7 @@ void dgemm_knl( int m, int k, int n, \
                 int lda, int ldb, int ldc )
 {
     // Memory for \tilde a and \tilde b
-    double* hat_a = (double*)_mm_malloc( m_r * k_b * sizeof( double ), 64 ); // m_b = m_r
+    double* hat_a = (double*)_mm_malloc( m_b * k_b * sizeof( double ), 64 );
     double* hat_b = (double*)_mm_malloc( k_b * n_r * sizeof( double ), 64 );
 
     for ( int k_b_i = 0; k_b_i < k / k_b; k_b_i++)

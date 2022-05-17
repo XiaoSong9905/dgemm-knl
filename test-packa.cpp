@@ -1,3 +1,9 @@
+/* 
+ * Copyright (C) 2022 Xiao Song.
+ * All Rights Reserved.
+ * Content of this file is not for commertial use.
+ */
+
 #include <cstdio>
 #include <immintrin.h>
 

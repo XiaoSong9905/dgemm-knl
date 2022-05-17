@@ -1,3 +1,9 @@
+/* 
+ * Copyright (C) 2022 Xiao Song.
+ * All Rights Reserved.
+ * Content of this file is not for commertial use.
+ */
+
 #include <cstdio>
 #include <immintrin.h>
 
@@ -49,7 +55,6 @@ void pack_b( double* src_b, double* hat_b, int ldb, int n )
 
 int main()
 {
-    int m = m_b * 2;
     int n = n_r * 3;
     int k = k_b * 2;
     int ldb = n;
