@@ -25,13 +25,13 @@ extern void dgemm_knl( int, int, int, double*, double*, double*, int, int, int )
 
 void reference_dgemm( int m, int k, int n, double alpha, double* src_a, double* src_b, double* src_c, int lda, int ldb, int ldc ) 
 {
-    cblas_dgemm( CblasColMajor, CblasNoTrans, CblasNoTrans, \
-                 m, n, k,  \
+    cblas_dgemm( CblasRowMajor, CblasNoTrans, CblasNoTrans, \
+                 m, n, k, \
                  alpha, \
-                 src_a, m, \
-                 src_b, k, \
+                 src_a, lda, \
+                 src_b, ldb, \
                  1., \
-                 src_c, m );
+                 src_c, ldc );
 }
 
 
@@ -54,9 +54,9 @@ int main(int argc, char** argv)
     std::vector<std::vector<int>> test_sizes
     {
         // m,k,n
-        std::vector<int>{ 78*31, 1*1624, 300*8 },
-        std::vector<int>{ 78*31, 2*1624, 300*8 },
-        std::vector<int>{ 156*31, 3*1624, 605*8 },
+        std::vector<int>{ 78*31, 1*1632, 300*8 },
+        std::vector<int>{ 78*31, 2*1632, 300*8 },
+        std::vector<int>{ 156*31, 3*1632, 605*8 },
     };
 
     int nsizes = test_sizes.size();
@@ -76,6 +76,10 @@ int main(int argc, char** argv)
         int k = test_size_i[ 1 ];
         int n = test_size_i[ 2 ];
 
+        int lda = k;
+        int ldb = n;
+        int ldc = n;
+
         double* A = buf.data() + 0;
         double* B = A + nmax * nmax;
         double* C = B + nmax * nmax;
@@ -92,13 +96,13 @@ int main(int argc, char** argv)
         for (int n_iterations = 1; seconds < timeout; n_iterations *= 2) 
         {
             /* Warm-up */
-            dgemm_knl( m, k, n, A, B, C, m, k, m );
+            dgemm_knl( m, k, n, A, B, C, lda, ldb, ldc );
 
             /* Benchmark n_iterations runs of square_dgemm */
             auto start = std::chrono::steady_clock::now();
             for (int it = 0; it < n_iterations; ++it) 
             {
-                dgemm_knl( m, k, n, A, B, C, m, k, m );
+                dgemm_knl( m, k, n, A, B, C, lda, ldb, ldc );
             }
             auto end = std::chrono::steady_clock::now();
             std::chrono::duration<double> diff = end - start;
@@ -121,12 +125,12 @@ int main(int argc, char** argv)
 
         /* C := A * B, computed with square_dgemm */
         std::fill(C, &C[m * n], 0.0);
-        dgemm_knl( m, k, n, A, B, C, m, k, m );
+        dgemm_knl( m, k, n, A, B, C, lda, ldb, ldc );
 
         /* Do not explicitly check that A and B were unmodified on square_dgemm exit
          *  - if they were, the following will most likely detect it:
          * C := C - A * B, computed with reference_dgemm */
-        reference_dgemm( m, k, n, -1, A, B, C, m, k, m );
+        reference_dgemm( m, k, n, -1, A, B, C, lda, ldb, ldc );
 
         /* A := |A|, B := |B|, C := |C| */
         std::transform(A, &A[m * k], A, fabs);
@@ -135,7 +139,7 @@ int main(int argc, char** argv)
 
         /* C := |C| - 3 * e_mach * n * |A| * |B|, computed with reference_dgemm */
         const auto e_mach = std::numeric_limits<double>::epsilon();
-        reference_dgemm( m, k, n, -3. * e_mach * std::max(n, m), A, B, C, m, k, m );
+        reference_dgemm( m, k, n, -3. * e_mach * std::max(n, m), A, B, C, lda, ldb, ldc );
 
         /* If any element in C is positive, then something went wrong in square_dgemm */
         for (int i = 0; i < m * n; ++i) 

@@ -15,18 +15,18 @@ void dgemm_knl( int m, int k, int n, \
                 int lda, int ldb, int ldc )
 {
     // cblas_dgemm (const CBLAS_LAYOUT Layout, const CBLAS_TRANSPOSE transa, const CBLAS_TRANSPOSE transb, \
-                    const MKL_INT m, const MKL_INT n, const MKL_INT k, \
-                    const double alpha, \
-                    const double *a, const MKL_INT lda, \
-                    const double *b, const MKL_INT ldb, \
-                    const double beta, \
-                    double *c, const MKL_INT ldc);
+    //                 const MKL_INT m, const MKL_INT n, const MKL_INT k, \
+    //                 const double alpha, \
+    //                 const double *a, const MKL_INT lda, \
+    //                 const double *b, const MKL_INT ldb, \
+    //                 const double beta, \
+    //                 double *c, const MKL_INT ldc);
 
-    cblas_dgemm( CblasColMajor, CblasNoTrans, CblasNoTrans, \
-                 m, n, k,
-                 1.,
-                 src_a, m,
-                 src_b, k,
-                 1.,
-                 src_c, m );
+    cblas_dgemm( CblasRowMajor, CblasNoTrans, CblasNoTrans, \
+                 m, n, k, \
+                 1., \
+                 src_a, lda, \
+                 src_b, ldb, \
+                 1., \
+                 src_c, ldc );
 }

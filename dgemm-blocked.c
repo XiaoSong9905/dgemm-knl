@@ -9,7 +9,7 @@
 
 const char* dgemm_desc = "Blocked dgemm.";
 
-#define k_b 1624
+#define k_b 1632
 #define m_b 31
 #define m_r 31
 #define n_r 8
@@ -39,10 +39,9 @@ void inner_kernel(  double* __restrict__ hat_a, \
                     double* __restrict__ hat_c, \
                     int ldc );
 
-void pack_b( double* src_b, double* hat_b, int ldb );
+void pack_b( double* src_b, double* hat_b, int ldb, int n );
 
 void pack_a( double* src_a, double* hat_a, int lda );
-
 
 /**
  * @brief Inner kernel for GEMM (row major order)
@@ -197,53 +196,53 @@ inline void inner_kernel( double* __restrict__ hat_a, \
  * @brief Pack k_b * n_r of submatrix B (row major order)
  * 
  */
-void pack_b( double* src_b, double* hat_b, int ldb )
+void pack_b( double* src_b, double* hat_b, int ldb, int n )
 {
-    UNROLL_LOOP( 4 )
     for ( int row_i = 0; row_i < k_b; ++row_i )
     {
         double* src_b_row_i = src_b + row_i * ldb;
         double* hat_b_row_i = hat_b + row_i * n_r;
 
-        UNROLL_LOOP( n_r );
-        for ( int col_i = 0; col_i < n_r; ++col_i )
+        UNROLL_LOOP( 4 )
+        for ( int n_r_i = 0; n_r_i < (n / n_r); ++n_r_i )
         {
-            *(hat_b_row_i + col_i) = *(src_b_row_i + col_i);
+            double* src_b_row_n_r_i = src_b_row_i + n_r_i * n_r;
+            double* hat_b_row_n_r_i = hat_b_row_i + n_r_i * k_b * n_r;
+
+            UNROLL_LOOP( n_r )
+            for ( int col_i = 0; col_i < n_r; ++col_i )
+            {
+                *(hat_b_row_n_r_i + col_i) = *(src_b_row_n_r_i + col_i);
+            }
         }
     }
 }
 
 
 /**
- * @brief Pack m_b (= m_r) * k_b of submatrix A (row major order)
+ * @brief Pack m_b * k_b of submatrix A (row major order)
  * 
  */
 void pack_a( double* src_a, double* hat_a, int lda )
 {
-    UNROLL_LOOP( 4 )
-    for ( int row_i = 0; row_i < n_r; ++row_i )
+    for ( int m_r_i = 0; m_r_i < (m_b / m_r); ++m_r_i )
     {
-        double* src_a_row_i = src_a + row_i * lda;
-        double* hat_a_row_i = hat_a + row_i;
+        double* src_a_row_m_r_i = src_a + m_r_i * m_r * lda;
+        double* hat_a_row_m_r_i = hat_a + m_r_i * m_r * k_b;
 
-        UNROLL_LOOP( n_r );
-        for ( int col_i = 0; col_i < k_b; ++col_i )
+        UNROLL_LOOP( 4 )
+        for ( int row_i = 0; row_i < m_r; ++row_i )
         {
-            *(hat_a_row_i + col_i * m_r) = *(src_a_row_i + col_i);
+            double* src_a_row_i = src_a_row_m_r_i + row_i * lda;
+            double* hat_a_row_i = hat_a_row_m_r_i + row_i;
+
+            UNROLL_LOOP( 8 * 4 )
+            for ( int col_i = 0; col_i < k_b; ++col_i )
+            {
+                *(hat_a_row_i + col_i * m_r) = *(src_a_row_i + col_i);
+            }
         }
     }
-}
-
-
-/**
- * @brief Allocate require aligned memory.
- * 
- */
-inline double* allocate_align_memory( int size, int align_bytes )
-{
-    void* ptr = NULL;
-    posix_memalign( &ptr, align_bytes, size );
-    return (double*)ptr;
 }
 
 
@@ -258,11 +257,14 @@ void dgemm_knl( int m, int k, int n, \
                 int lda, int ldb, int ldc )
 {
     // Memory for \tilde a and \tilde b
-    double* hat_a = allocate_align_memory( m_r * k_b, 64 ); // m_b = m_r
-    double* hat_b = allocate_align_memory( k_b * n_r, 64 );
+    double* hat_a = (double*)_mm_malloc( m_r * k_b * sizeof( double ), 64 ); // m_b = m_r
+    double* hat_b = (double*)_mm_malloc( k_b * n_r * sizeof( double ), 64 );
 
     for ( int k_b_i = 0; k_b_i < k / k_b; k_b_i++)
     {
+        // Pack \tilde b
+        pack_b( src_b + k_b_i * k_b * ldb, hat_b, ldb, n );
+
         for ( int m_b_i = 0; m_b_i < m / m_b; m_b_i++ )
         {
             // Pack \tilde a
@@ -270,12 +272,18 @@ void dgemm_knl( int m, int k, int n, \
 
             for ( int n_r_i = 0; n_r_i < n / n_r; n_r_i++ )
             {
-                // Pack \tilde b
-                pack_b( src_b + k_b_i * k_b * ldc + n_r_i * n_r, hat_b, ldb );
-
-                // Inner Kernel (register blocking)
-                inner_kernel( hat_a, hat_b, src_c + m_b_i * m_b * ldc +n_r_i * n_r, ldc );
+                for ( int m_r_i = 0; m_r_i < m_b / m_r; m_r_i++ )
+                {
+                    // Inner Kernel (register blocking)
+                    inner_kernel( hat_a + m_r_i * m_r * k_b, \
+                                  hat_b + n_r_i * n_r * k_b, \
+                                  src_c + m_b_i * m_b * ldc + m_r_i * m_r * ldc + n_r_i * n_r, \
+                                  ldc );
+                }
             }
         }
     }
+
+    _mm_free( hat_a );
+    _mm_free( hat_b );
 }

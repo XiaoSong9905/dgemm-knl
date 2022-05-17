@@ -33,3 +33,14 @@ foreach (BENCHMARK IN ITEMS blocked blas)
     # Generate job script
     configure_file(benchmark.in job-benchmark-${BENCHMARK})
 endforeach ()
+
+# Test
+foreach (TESTTYPE IN ITEMS packa packb innerkernel )
+    add_executable(test-${TESTTYPE} test-${TESTTYPE}.cpp)
+    target_link_libraries(test-${TESTTYPE} PRIVATE ${BLAS_LIBRARIES})
+    target_compile_features(test-${TESTTYPE} PRIVATE c_std_11 c_restrict)
+    target_compile_options(test-${TESTTYPE} PRIVATE -Wall -pedantic -march=knl)
+
+    # Generate job script
+    configure_file(test.in job-test-${TESTTYPE})
+endforeach ()
