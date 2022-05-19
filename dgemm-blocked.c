@@ -61,8 +61,6 @@ inline void inner_kernel( double* __restrict__ hat_a, \
                           double* __restrict__ hat_c, \
                           int ldc )
 {
-    // TODO: replace this whole function using assembly code. 
-    // Entering asm volatile is expensive
     __m512d R00, R01, R02, R03, R04, R05, R06, R07, R08, R09, \
             R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, \
             R20, R21, R22, R23, R24, R25, R26, R27, R28, R29, \
@@ -145,6 +143,9 @@ inline void inner_kernel( double* __restrict__ hat_a, \
         // Each _mm_prefetch load one cache line of data
         // \hat A need to load m_r * 8 (size of double) / 64 (size of cache line) = 3.8 cache line
         // \hat B need to load n_r * 8 / 64 = 1 cache line
+        // NOTE: if use _MM_HINT_T1 (prefetch to L2 & L3), there won't be any performence gain compared with no prefetch
+        // NOTE: if only one cache line of hat_a is prefetch, the performence will be lower, indicating prefetch multiple lines is nessary
+        //    here the prefetch is prefetch next \hat A \hat B
         _mm_prefetch( hat_a + 12 * m_r + 64 * 0, _MM_HINT_T0 );
         _mm_prefetch( hat_a + 12 * m_r + 64 * 1, _MM_HINT_T0 );
         _mm_prefetch( hat_a + 12 * m_r + 64 * 2, _MM_HINT_T0 );
@@ -187,7 +188,8 @@ inline void inner_kernel( double* __restrict__ hat_a, \
         // R29 = _mm512_fmadd_pd( _mm512_set1_pd( *(hat_a + 29) ), R31, R29 );
 
         // R30 = _mm512_fmadd_pd( _mm512_set1_pd( *(hat_a + 30) ), R31, R30 );
-                
+
+        // NOTE: Although the mapping is the same, using asm assembly is around 1% faster than intrinsic  
         asm volatile(
             "vfmadd231pd   0(%[hat_a])%{1to8}, %[R31], %[R00]\n\t"
             "vfmadd231pd   8(%[hat_a])%{1to8}, %[R31], %[R01]\n\t"
